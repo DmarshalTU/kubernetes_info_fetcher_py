@@ -76,4 +76,4 @@ graph TD
 
 ```
 
-Check the `output_*` directory for generated markdown files with diagrams.
+Check the `output_<CLUSTER_NAME>` directory for generated markdown files with diagrams.
