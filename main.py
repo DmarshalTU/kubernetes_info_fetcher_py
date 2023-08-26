@@ -101,7 +101,8 @@ def generate_markdown(workload, pods, services) -> str:
     return "```mermaid\n" + '\n'.join(graph_def) + "\n```"
 
 def generate_node(kind, name) -> str:
-    return f"{kind}_{name}[{name}]"
+    label = f"{kind}: {name}" if kind not in ["Pod"] else name
+    return f"{kind}_{name}[{label}]"
 
 def generate_link(source_kind, source_name, target_kind, target_name) -> str:
     return f"{source_kind}{source_name} --> {target_kind}{target_name}"

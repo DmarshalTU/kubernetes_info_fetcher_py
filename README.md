@@ -62,4 +62,18 @@ Run the program:
 python main.py
 ```
 
+## Example
+
+Istio-Kiali deployment:
+
+```mermaid
+graph TD
+    V1Deployment_kiali[Deployment: kiali]
+    Pod_kiali-77c74f7d9c-298nt[kiali-77c74f7d9c-298nt]
+    V1Deployment_kiali --> Pod_kiali-77c74f7d9c-298nt
+    Service_kiali[Service: kiali]
+    Service_kiali --> Pod_kiali-77c74f7d9c-298nt
+
+```
+
 Check the `output_*` directory for generated markdown files with diagrams.
