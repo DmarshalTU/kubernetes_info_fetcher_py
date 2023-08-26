@@ -1,6 +1,11 @@
 import os
 import asyncio
 from kubernetes import client, config
+import logging
+
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 config.load_kube_config()
 current_context = config.list_kube_config_contexts()[1]['context']['cluster']
@@ -17,7 +22,7 @@ def fetch_namespaces() -> list:
         v1 = client.CoreV1Api()
         return v1.list_namespace().items
     except Exception as e:
-        print(f"Error fetching namespaces: {e}")
+        logging.error(f"Error fetching namespaces: {e}")
         return []
 
 
@@ -38,7 +43,7 @@ def fetch_all_workloads(namespace_name: str) -> list:
         daemon_sets = apps_v1.list_namespaced_daemon_set(namespace_name).items
         return deployments + stateful_sets + daemon_sets
     except Exception as e:
-        print(f"Error fetching workloads for namespace {namespace_name}: {e}")
+        logging.error(f"Error fetching workloads for namespace {namespace_name}: {e}")
         return []
 
 
@@ -57,7 +62,7 @@ def fetch_pods_for_workload(namespace_name: str, label_selector: str) -> list:
         v1 = client.CoreV1Api()
         return v1.list_namespaced_pod(namespace_name, label_selector=label_selector).items
     except Exception as e:
-        print(f"Error fetching pods for namespace {namespace_name} with label selector {label_selector}: {e}")
+        logging.error(f"Error fetching pods for namespace {namespace_name} with label selector {label_selector}: {e}")
         return []
 
 
@@ -76,7 +81,7 @@ def fetch_services_for_workload(namespace_name: str, label_selector: str) -> lis
         v1 = client.CoreV1Api()
         return v1.list_namespaced_service(namespace_name, label_selector=label_selector).items
     except Exception as e:
-        print(f"Error fetching services for namespace {namespace_name} with label selector {label_selector}: {e}")
+        logging.error(f"Error fetching services for namespace {namespace_name} with label selector {label_selector}: {e}")
         return []
 
 
@@ -206,7 +211,7 @@ async def main_async():
     namespaces = fetch_namespaces()
     for ns in namespaces:
         namespace_name = ns.metadata.name
-        print(f"Processing namespace: {namespace_name}")
+        logging.info(f"Processing namespace: {namespace_name}")
 
         workloads = fetch_all_workloads(namespace_name)
         for workload in workloads:
