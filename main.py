@@ -127,6 +127,50 @@ def fetch_resources_for_workload(workload: object) -> dict:
     }
 
 
+def extract_deployment_details(deployment) -> dict:
+    """
+    Extract metadata, container, and status details from a given deployment.
+
+    Args:
+        deployment (object): Kubernetes deployment object.
+
+    Returns:
+        dict: Dictionary containing extracted details.
+    """
+    details = {
+        "metadata": {
+            "name": deployment.metadata.name,
+            "namespace": deployment.metadata.namespace,
+            "labels": deployment.metadata.labels,
+            "annotations": deployment.metadata.annotations,
+        },
+        "spec": {
+            "replicas": deployment.spec.replicas,
+            "selector": deployment.spec.selector.match_labels,
+            "min_ready_seconds": deployment.spec.min_ready_seconds,
+            "strategy": deployment.spec.strategy.type,
+            "revision_history_limit": deployment.spec.revision_history_limit,
+            "progress_deadline_seconds": deployment.spec.progress_deadline_seconds
+        },
+        "container": {
+            "name": deployment.spec.template.spec.containers[0].name,
+            "image": deployment.spec.template.spec.containers[0].image,
+            "env": [env.name for env in deployment.spec.template.spec.containers[0].env] if deployment.spec.template.spec.containers[0].env else [],
+            "resources": deployment.spec.template.spec.containers[0].resources.requests,
+            "volume_mounts": [vm.name for vm in deployment.spec.template.spec.containers[0].volume_mounts] if deployment.spec.template.spec.containers[0].volume_mounts else [],
+            "image_pull_policy": deployment.spec.template.spec.containers[0].image_pull_policy
+        },
+        "status": {
+            "replicas": deployment.status.replicas,
+            "updated_replicas": deployment.status.updated_replicas,
+            "ready_replicas": deployment.status.ready_replicas,
+            "available_replicas": deployment.status.available_replicas,
+            "conditions": [condition.type for condition in deployment.status.conditions]
+        }
+    }
+    return details
+
+
 def generate_markdown(workload: object, pods: list, services: list) -> str:
     """
     Generate a Mermaid markdown representation for the given workload, pods, and services.
@@ -163,6 +207,124 @@ def generate_markdown(workload: object, pods: list, services: list) -> str:
                 graph_def.append(generate_link("Service", service_name, "Pod", pod_name))
 
     return "```mermaid\n" + '\n'.join(graph_def) + "\n```"
+
+
+def simplify_value(value):
+    """Simplify complex values for visualization."""
+    if isinstance(value, dict):
+        return ', '.join(value.keys())
+    elif isinstance(value, list):
+        if len(value) > 3:
+            return ', '.join([str(v) for v in value[:3]]) + ', ...'
+        return ', '.join([str(v) for v in value])
+    else:
+        return str(value)
+
+
+def generate_deployment_visualization(details) -> str:
+    dep_name = details['metadata']['name']
+
+    # Metadata & Core Details
+    metadata_core_def = [
+        "graph TB",
+        f"A[Deployment: {dep_name}]",
+        "A --> B[Metadata]",
+        "A --> D[Spec]"
+    ]
+
+    last_metadata_key = None
+    for key, value in details['metadata'].items():
+        value_str = simplify_value(value)
+        metadata_core_def.append(f"B --> C_{key}[{key}: {value_str}]")
+        if last_metadata_key:
+            metadata_core_def.append(f"C_{last_metadata_key} --> C_{key}")
+        last_metadata_key = key
+
+    last_spec_key = None
+    for key, value in details['spec'].items():
+        value_str = simplify_value(value)
+        metadata_core_def.append(f"D --> E_{key}[{key}: {value_str}]")
+        if last_spec_key:
+            metadata_core_def.append(f"E_{last_spec_key} --> E_{key}")
+        last_spec_key = key
+
+    # Styling
+    metadata_core_def.extend([
+        """
+classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
+classDef yellowFill fill:#c7e59a,stroke:#333,stroke-width:2px,color:#333;
+class A,B,D greenFill
+class C_name,C_namespace,C_labels,C_annotations,E_replicas,E_selector,E_min_ready_seconds,E_strategy,E_revision_history_limit,E_progress_deadline_seconds yellowFill
+        """
+    ])
+
+    # Container Details
+    container_def = [
+        "graph LR",
+        "A[Container: container-0]"
+    ]
+
+    container = details.get('containers', [{}])[0]
+    container_def.extend([
+        f"A --> B_name[name: {container.get('name', 'container-0')}]",
+        f"A --> B_image[image: {container.get('image', 'N/A')}]",
+        f"A --> B_env[env: {', '.join([env['name'] for env in container.get('env', [])])}]",
+    ])
+    resources = container.get('resources', {}).get('requests', {})
+    cpu = resources.get('cpu', 'N/A')
+    memory = resources.get('memory', 'N/A')
+    container_def.append(f"A --> B_resources[resources: cpu - {cpu}, memory - {memory}]")
+    volume_mounts = ', '.join([vm['mountPath'] for vm in container.get('volumeMounts', [])])
+    container_def.append(f"A --> B_volume_mounts[volume_mounts: {volume_mounts}]")
+    container_def.append(f"A --> B_image_pull_policy[image_pull_policy: {container.get('imagePullPolicy', 'N/A')}]")
+
+    # Styling for container
+    container_def.extend([
+        """
+classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
+class A greenFill
+        """
+    ])
+
+    # Status Overview
+    status_def = [
+        "graph TB",
+        "A[Status]"
+    ]
+    for key, value in details.get('status', {}).items():
+        value_str = simplify_value(value)
+        status_def.append(f"A --> S_{key}[{key}: {value_str}]")
+
+    # Styling for status
+    status_def.extend([
+        """
+classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
+class A greenFill
+        """
+    ])
+
+    metadata_core_str = '\n'.join(metadata_core_def)
+    container_def_str = '\n'.join(container_def)
+    status_def_str = '\n'.join(status_def)
+
+    full_markdown = (
+        f"# {dep_name}\n\n"
+        "## Metadata & Core Details\n\n"
+        f"```mermaid\n{metadata_core_str}\n```\n\n"
+        "## Container Details\n\n"
+        f"```mermaid\n{container_def_str}\n```\n\n"
+        "## Status Overview\n\n"
+        f"```mermaid\n{status_def_str}\n```"
+    )
+
+
+    return full_markdown
+
+
+
+
+
+
 
 
 def generate_node(kind: str, name: str) -> str:
@@ -215,10 +377,11 @@ async def main_async():
 
         workloads = fetch_all_workloads(namespace_name)
         for workload in workloads:
-            resources = fetch_resources_for_workload(workload)
-            markdown_content = generate_markdown(workload, resources["pods"], resources["services"])
-            with open(os.path.join(output_dir, f"{namespace_name}_{workload.metadata.name}.md"), "w") as f:
-                f.write(markdown_content)
+            if isinstance(workload, client.V1Deployment):
+                details = extract_deployment_details(workload)
+                markdown_content = generate_deployment_visualization(details)
+                with open(os.path.join(output_dir, f"{namespace_name}_{workload.metadata.name}_metadata.md"), "w") as f:
+                    f.write(markdown_content)
 
 
 def main():
