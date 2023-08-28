@@ -157,7 +157,16 @@ def extract_deployment_details(deployment) -> dict:
             "name": deployment.spec.template.spec.containers[0].name,
             "image": deployment.spec.template.spec.containers[0].image,
             "env": [env.name for env in deployment.spec.template.spec.containers[0].env] if deployment.spec.template.spec.containers[0].env else [],
-            "resources": deployment.spec.template.spec.containers[0].resources.requests,
+            "resources": {
+                "requests": {
+                    "cpu": deployment.spec.template.spec.containers[0].resources.requests.get('cpu', 'N/A') if deployment.spec.template.spec.containers[0].resources and deployment.spec.template.spec.containers[0].resources.requests else 'N/A',
+                    "memory": deployment.spec.template.spec.containers[0].resources.requests.get('memory', 'N/A') if deployment.spec.template.spec.containers[0].resources and deployment.spec.template.spec.containers[0].resources.requests else 'N/A'
+                },
+                "limits": {
+                    "cpu": deployment.spec.template.spec.containers[0].resources.limits.get('cpu', 'N/A') if deployment.spec.template.spec.containers[0].resources and deployment.spec.template.spec.containers[0].resources.limits else 'N/A',
+                    "memory": deployment.spec.template.spec.containers[0].resources.limits.get('memory', 'N/A') if deployment.spec.template.spec.containers[0].resources and deployment.spec.template.spec.containers[0].resources.limits else 'N/A'
+                }
+            },
             "volume_mounts": [vm.name for vm in deployment.spec.template.spec.containers[0].volume_mounts] if deployment.spec.template.spec.containers[0].volume_mounts else [],
             "image_pull_policy": deployment.spec.template.spec.containers[0].image_pull_policy
         },
@@ -233,14 +242,34 @@ def generate_deployment_visualization(details) -> str:
         "graph TB",
         f"A[Deployment: {dep_name}] --> B[Metadata]",
     ]
-    for key, value in details['metadata'].items():
-        value_str = simplify_value(value)
-        metadata_core_def.append(f"B --> C_{key}[{key}: {value_str}]")
 
+    metadata = details['metadata']
+    spec = details['spec']
+
+    # # Generate metadata chain
+    # prev_key = 'B'
+    # for key in ['name', 'namespace', 'labels', 'annotations']:
+    #     value_str = simplify_value(metadata.get(key, 'N/A'))
+    #     curr_key = f"C_{key}"
+    #     metadata_core_def.append(f"{prev_key} --> {curr_key}[{key}: {value_str}]")
+    #     prev_key = curr_key
+
+    # Generate metadata chain
+    prev_key = 'B'
+    for key in ['name', 'namespace', 'labels', 'annotations']:
+        value_str = simplify_value(metadata.get(key, 'N/A'))
+        curr_key = f"C_{key}"
+        metadata_core_def.append(f"{prev_key} --> {curr_key}[{key}: {value_str}]")
+        prev_key = curr_key
+
+    # Generate spec chain
     metadata_core_def.append(f"A --> D[Spec]")
-    for key, value in details['spec'].items():
-        value_str = simplify_value(value)
-        metadata_core_def.append(f"D --> E_{key}[{key}: {value_str}]")
+    prev_key = 'D'
+    for key in ['replicas', 'selector', 'min_ready_seconds', 'strategy', 'revision_history_limit', 'progress_deadline_seconds']:
+        value_str = simplify_value(spec.get(key, 'N/A'))
+        curr_key = f"E_{key}"
+        metadata_core_def.append(f"{prev_key} --> {curr_key}[{key}: {value_str}]")
+        prev_key = curr_key
 
     metadata_core_def.extend([
         "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
@@ -250,16 +279,30 @@ def generate_deployment_visualization(details) -> str:
     ])
 
     # Container Details
+    cpu_requests = details['container']['resources']['requests']['cpu']
+    memory_requests = details['container']['resources']['requests']['memory']
+    cpu_limits = details['container']['resources']['limits']['cpu']
+    memory_limits = details['container']['resources']['limits']['memory']
+
+
     container_def = [
         "graph LR",
-        f"A[Container: {details['container']['name']}]"
+        f"A[Container: {details['container']['name']}]",
+        f"A --> B_cpu_requests[CPU Requests: {cpu_requests}]",
+        f"A --> B_memory_requests[Memory Requests: {memory_requests}]",
+        f"A --> B_cpu_limits[CPU Limits: {cpu_limits}]",
+        f"A --> B_memory_limits[Memory Limits: {memory_limits}]",
     ]
-    for key, value in details['container'].items():
-        value_str = simplify_value(value)
-        container_def.append(f"A --> B_{key}[{key}: {value_str}]")
 
-    container_def.append("classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;")
-    container_def.append("class A greenFill")
+    for key, value in details['container'].items():
+        if key != "resources":  # We've already handled the 'resources' key separately above
+            value_str = simplify_value(value)
+            container_def.append(f"A --> B_{key}[{key}: {value_str}]")
+
+    container_def.extend([
+        "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
+        "class A greenFill"
+    ])
 
     # Status Overview
     status_def = [
@@ -270,8 +313,10 @@ def generate_deployment_visualization(details) -> str:
         value_str = simplify_value(value)
         status_def.append(f"A --> B_{key}[{key}: {value_str}]")
 
-    status_def.append("classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;")
-    status_def.append("class A greenFill")
+    status_def.extend([
+        "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
+        "class A greenFill"
+    ])
 
     full_markdown = (
             "# " + dep_name +
