@@ -17,9 +17,6 @@ current_context = config.list_kube_config_contexts()[1]['context']['cluster']
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-# config.load_kube_config()
-# current_context = config.list_kube_config_contexts()[1]['context']['cluster']
-
 
 def fetch_namespaces() -> list:
     """
@@ -95,48 +92,6 @@ def fetch_services_for_workload(namespace_name: str, label_selector: str) -> lis
         return []
 
 
-def fetch_resources_for_workload(workload: object) -> dict:
-    """
-    Fetch all resources associated with a given workload.
-
-    Args:
-        workload (object): The workload object (could be Deployment, StatefulSet, etc.).
-
-    Returns:
-        dict: A dictionary containing related replica sets, pods, and services.
-    """
-    namespace_name = workload.metadata.namespace
-    workload_kind = type(workload).__name__
-
-    owned_replica_sets = []
-
-    # Fetch all potential child resources in the namespace
-    pods = fetch_pods_for_workload(namespace_name, "")
-    services = fetch_services_for_workload(namespace_name, "")
-    apps_v1 = client.AppsV1Api()
-    replica_sets = apps_v1.list_namespaced_replica_set(namespace_name).items
-
-    if workload_kind == "V1Deployment":
-        owned_replica_sets = [rs for rs in replica_sets if
-                              any(owner.uid == workload.metadata.uid for owner in rs.metadata.owner_references)]
-        owned_pods = [pod for pod in pods if any(
-            owner.uid == rs.metadata.uid for rs in owned_replica_sets for owner in pod.metadata.owner_references)]
-    elif workload_kind in ["V1StatefulSet", "V1DaemonSet", "V1ReplicaSet"]:
-        owned_pods = [pod for pod in pods if pod.metadata.owner_references and any(
-            owner.uid == workload.metadata.uid for owner in pod.metadata.owner_references)]
-    else:  # Standalone pods
-        owned_pods = [pod for pod in pods if not pod.metadata.owner_references]
-
-    selected_services = [service for service in services if service.spec.selector and any(
-        all(item in pod.metadata.labels.items() for item in service.spec.selector.items()) for pod in owned_pods)]
-
-    return {
-        "replica_sets": owned_replica_sets,
-        "pods": owned_pods,
-        "services": selected_services
-    }
-
-
 def extract_deployment_details(deployment) -> dict:
     """
     Extract metadata, container, and status details from a given deployment.
@@ -190,44 +145,6 @@ def extract_deployment_details(deployment) -> dict:
     return details
 
 
-def generate_markdown(workload: object, pods: list, services: list) -> str:
-    """
-    Generate a Mermaid markdown representation for the given workload, pods, and services.
-
-    Args:
-        workload (object): The workload object.
-        pods (list): A list of related pod objects.
-        services (list): A list of related service objects.
-
-    Returns:
-        str: The Mermaid markdown string.
-    """
-    graph_def = ["graph TD"]
-
-    # Add workload
-    workload_name = workload.metadata.name
-    workload_kind = type(workload).__name__
-    graph_def.append(generate_node(workload_kind, workload_name))
-
-    # Add pods and link them to workload
-    for pod in pods:
-        pod_name = pod.metadata.name
-        graph_def.append(generate_node("Pod", pod_name))
-        graph_def.append(generate_link(workload_kind, workload_name, "Pod", pod_name))
-
-    # Add services and link them to pods
-    for service in services:
-        service_name = service.metadata.name
-        graph_def.append(generate_node("Service", service_name))
-        for pod in pods:
-            pod_name = pod.metadata.name
-            if service.spec.selector and all(
-                    item in pod.metadata.labels.items() for item in service.spec.selector.items()):
-                graph_def.append(generate_link("Service", service_name, "Pod", pod_name))
-
-    return "```mermaid\n" + '\n'.join(graph_def) + "\n```"
-
-
 def simplify_value(value):
     """Simplify complex values for visualization."""
     if isinstance(value, dict):
@@ -238,7 +155,6 @@ def simplify_value(value):
         return ', '.join([str(v) for v in value])
     else:
         return str(value)
-
 
 
 def generate_deployment_visualization(details) -> str:
@@ -342,6 +258,7 @@ def generate_deployment_visualization(details) -> str:
     )
 
     return full_markdown
+
 
 def generate_node(kind: str, name: str) -> str:
     """
