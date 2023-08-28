@@ -59,7 +59,7 @@ Ensure you have access to the Kubernetes cluster and `~/.kube/config` is properl
 Run the program:
 
 ```bash
-python main.py
+python main.py --config <PATH_TO_CONFIG_FILE> # default: .kube/config
 ```
 
 ## Example
