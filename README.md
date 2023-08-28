@@ -64,16 +64,44 @@ python main.py
 
 ## Example
 
-Istio-Kiali deployment:
+istio-ingressgateway-ext deployment:
+
 
 ```mermaid
-graph TD
-    V1Deployment_kiali[Deployment: kiali]
-    Pod_kiali-77c74f7d9c-298nt[kiali-77c74f7d9c-298nt]
-    V1Deployment_kiali --> Pod_kiali-77c74f7d9c-298nt
-    Service_kiali[Service: kiali]
-    Service_kiali --> Pod_kiali-77c74f7d9c-298nt
-
+graph LR
+A[Deployment: istio-ingressgateway-ext]
+A --> meta_name[name: istio-ingressgateway-ext]
+A --> meta_namespace[namespace: istio-system]
+A --> meta_labels[labels: app, install.operator.istio.io/owning-resource, install.operator.istio.io/owning-resource-namespace, istio, istio.io/rev, operator.istio.io/component, operator.istio.io/managed, operator.istio.io/version, release]
+A --> meta_annotations[annotations: deployment.kubernetes.io/revision, field.cattle.io/publicEndpoints, kubectl.kubernetes.io/last-applied-configuration]
+A --> service_istio-ingressgateway-ext
+A --> C
+A --> S
+A --> service_istio-ingressgateway-ext
+C[Container: istio-proxy]
+C --> cont_name[name: istio-proxy]
+C --> cont_image[image: rancher/mirrored-istio-proxyv2:1.14.1-distroless]
+C --> cont_env[env: JWT_POLICY, PILOT_CERT_PROVIDER, CA_ADDR, ...]
+C --> cont_volume_mounts[volume_mounts: workload-socket, workload-certs, istio-envoy, ...]
+C --> cont_image_pull_policy[image_pull_policy: IfNotPresent]
+C --> cont_requests_cpu[requests cpu: 100m]
+C --> cont_requests_memory[requests memory: 128Mi]
+C --> cont_limits_cpu[limits cpu: 2]
+C --> cont_limits_memory[limits memory: 1Gi]
+S[Status]
+S --> status_replicas[replicas: 2]
+S --> status_updated_replicas[updated_replicas: 2]
+S --> status_ready_replicas[ready_replicas: 2]
+S --> status_available_replicas[available_replicas: 2]
+S --> status_conditions[conditions: Progressing, Available]
+service_istio-ingressgateway-ext[Service: istio-ingressgateway-ext]
+service_istio-ingressgateway-ext --> pod_istio-ingressgateway-ext-567549c7f4-bvv4t
+service_istio-ingressgateway-ext --> pod_istio-ingressgateway-ext-567549c7f4-lc4kc
+classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
+classDef yellowFill fill:#c7e59a,stroke:#333,stroke-width:2px,color:#333;
+class A greenFill
+class C,S yellowFill
 ```
+
 
 Check the `output_<CLUSTER_NAME>` directory for generated markdown files with diagrams.
