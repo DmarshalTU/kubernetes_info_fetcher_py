@@ -2,6 +2,7 @@ import os
 import asyncio
 from kubernetes import client, config
 import logging
+import pprint
 
 
 logging.basicConfig(level=logging.INFO,
@@ -221,105 +222,65 @@ def simplify_value(value):
         return str(value)
 
 
+import json
+
 def generate_deployment_visualization(details) -> str:
+    """Generate the full Mermaid markdown for a given deployment."""
     dep_name = details['metadata']['name']
 
     # Metadata & Core Details
     metadata_core_def = [
         "graph TB",
-        f"A[Deployment: {dep_name}]",
-        "A --> B[Metadata]",
-        "A --> D[Spec]"
+        f"A[Deployment: {dep_name}] --> B[Metadata]",
     ]
-
-    last_metadata_key = None
     for key, value in details['metadata'].items():
         value_str = simplify_value(value)
         metadata_core_def.append(f"B --> C_{key}[{key}: {value_str}]")
-        if last_metadata_key:
-            metadata_core_def.append(f"C_{last_metadata_key} --> C_{key}")
-        last_metadata_key = key
 
-    last_spec_key = None
+    metadata_core_def.append(f"A --> D[Spec]")
     for key, value in details['spec'].items():
         value_str = simplify_value(value)
         metadata_core_def.append(f"D --> E_{key}[{key}: {value_str}]")
-        if last_spec_key:
-            metadata_core_def.append(f"E_{last_spec_key} --> E_{key}")
-        last_spec_key = key
 
-    # Styling
     metadata_core_def.extend([
-        """
-classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
-classDef yellowFill fill:#c7e59a,stroke:#333,stroke-width:2px,color:#333;
-class A,B,D greenFill
-class C_name,C_namespace,C_labels,C_annotations,E_replicas,E_selector,E_min_ready_seconds,E_strategy,E_revision_history_limit,E_progress_deadline_seconds yellowFill
-        """
+        "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
+        "classDef yellowFill fill:#c7e59a,stroke:#333,stroke-width:2px,color:#333;",
+        "class A,B,D greenFill",
+        "class C_name,C_namespace,C_labels,C_annotations,E_replicas,E_selector,E_min_ready_seconds,E_strategy,E_revision_history_limit,E_progress_deadline_seconds yellowFill"
     ])
 
     # Container Details
     container_def = [
         "graph LR",
-        "A[Container: container-0]"
+        f"A[Container: {details['container']['name']}]"
     ]
+    for key, value in details['container'].items():
+        value_str = simplify_value(value)
+        container_def.append(f"A --> B_{key}[{key}: {value_str}]")
 
-    container = details.get('containers', [{}])[0]
-    container_def.extend([
-        f"A --> B_name[name: {container.get('name', 'container-0')}]",
-        f"A --> B_image[image: {container.get('image', 'N/A')}]",
-        f"A --> B_env[env: {', '.join([env['name'] for env in container.get('env', [])])}]",
-    ])
-    resources = container.get('resources', {}).get('requests', {})
-    cpu = resources.get('cpu', 'N/A')
-    memory = resources.get('memory', 'N/A')
-    container_def.append(f"A --> B_resources[resources: cpu - {cpu}, memory - {memory}]")
-    volume_mounts = ', '.join([vm['mountPath'] for vm in container.get('volumeMounts', [])])
-    container_def.append(f"A --> B_volume_mounts[volume_mounts: {volume_mounts}]")
-    container_def.append(f"A --> B_image_pull_policy[image_pull_policy: {container.get('imagePullPolicy', 'N/A')}]")
-
-    # Styling for container
-    container_def.extend([
-        """
-classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
-class A greenFill
-        """
-    ])
+    container_def.append("classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;")
+    container_def.append("class A greenFill")
 
     # Status Overview
     status_def = [
         "graph TB",
         "A[Status]"
     ]
-    for key, value in details.get('status', {}).items():
+    for key, value in details['status'].items():
         value_str = simplify_value(value)
-        status_def.append(f"A --> S_{key}[{key}: {value_str}]")
+        status_def.append(f"A --> B_{key}[{key}: {value_str}]")
 
-    # Styling for status
-    status_def.extend([
-        """
-classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;
-class A greenFill
-        """
-    ])
-
-    metadata_core_str = '\n'.join(metadata_core_def)
-    container_def_str = '\n'.join(container_def)
-    status_def_str = '\n'.join(status_def)
+    status_def.append("classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;")
+    status_def.append("class A greenFill")
 
     full_markdown = (
-        f"# {dep_name}\n\n"
-        "## Metadata & Core Details\n\n"
-        f"```mermaid\n{metadata_core_str}\n```\n\n"
-        "## Container Details\n\n"
-        f"```mermaid\n{container_def_str}\n```\n\n"
-        "## Status Overview\n\n"
-        f"```mermaid\n{status_def_str}\n```"
+            "# " + dep_name +
+            "\n\n## Metadata & Core Details\n\n```mermaid\n" + '\n'.join(metadata_core_def) + "\n```\n\n" +
+            "## Container Details\n\n```mermaid\n" + '\n'.join(container_def) + "\n```\n\n" +
+            "## Status Overview\n\n```mermaid\n" + '\n'.join(status_def) + "\n```"
     )
 
-
     return full_markdown
-
 
 
 
