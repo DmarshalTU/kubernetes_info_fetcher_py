@@ -2,14 +2,23 @@ import os
 import asyncio
 from kubernetes import client, config
 import logging
-import pprint
+import argparse
+
+
+parser = argparse.ArgumentParser(description='Generate Mermaid markdown for Kubernetes deployments.')
+parser.add_argument('--config', type=str, help='Path to the Kubernetes configuration file', default=None)
+args = parser.parse_args()
+
+config_path = args.config
+config.load_kube_config(config_path)
+current_context = config.list_kube_config_contexts()[1]['context']['cluster']
 
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-config.load_kube_config()
-current_context = config.list_kube_config_contexts()[1]['context']['cluster']
+# config.load_kube_config()
+# current_context = config.list_kube_config_contexts()[1]['context']['cluster']
 
 
 def fetch_namespaces() -> list:
@@ -231,107 +240,108 @@ def simplify_value(value):
         return str(value)
 
 
-import json
 
 def generate_deployment_visualization(details) -> str:
-    """Generate the full Mermaid markdown for a given deployment."""
+    """Generate the refined Mermaid markdown for a given deployment."""
     dep_name = details['metadata']['name']
+    namespace_name = details['metadata']['namespace']
+
+    # Fetch pods associated with the deployment
+    label_selector = ",".join([f"{k}={v}" for k, v in details['spec']['selector'].items()])
+    pods = fetch_pods_for_workload(namespace_name, label_selector)
+    services = fetch_services_for_workload(namespace_name, label_selector)
 
     # Metadata & Core Details
     metadata_core_def = [
-        "graph TB",
-        f"A[Deployment: {dep_name}] --> B[Metadata]",
+        "graph LR",
+        f"A[Deployment: {dep_name}]",
     ]
-
-    metadata = details['metadata']
-    spec = details['spec']
-
-    # # Generate metadata chain
-    # prev_key = 'B'
-    # for key in ['name', 'namespace', 'labels', 'annotations']:
-    #     value_str = simplify_value(metadata.get(key, 'N/A'))
-    #     curr_key = f"C_{key}"
-    #     metadata_core_def.append(f"{prev_key} --> {curr_key}[{key}: {value_str}]")
-    #     prev_key = curr_key
 
     # Generate metadata chain
-    prev_key = 'B'
     for key in ['name', 'namespace', 'labels', 'annotations']:
-        value_str = simplify_value(metadata.get(key, 'N/A'))
-        curr_key = f"C_{key}"
-        metadata_core_def.append(f"{prev_key} --> {curr_key}[{key}: {value_str}]")
-        prev_key = curr_key
-
-    # Generate spec chain
-    metadata_core_def.append(f"A --> D[Spec]")
-    prev_key = 'D'
-    for key in ['replicas', 'selector', 'min_ready_seconds', 'strategy', 'revision_history_limit', 'progress_deadline_seconds']:
-        value_str = simplify_value(spec.get(key, 'N/A'))
-        curr_key = f"E_{key}"
-        metadata_core_def.append(f"{prev_key} --> {curr_key}[{key}: {value_str}]")
-        prev_key = curr_key
-
-    metadata_core_def.extend([
-        "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
-        "classDef yellowFill fill:#c7e59a,stroke:#333,stroke-width:2px,color:#333;",
-        "class A,B,D greenFill",
-        "class C_name,C_namespace,C_labels,C_annotations,E_replicas,E_selector,E_min_ready_seconds,E_strategy,E_revision_history_limit,E_progress_deadline_seconds yellowFill"
-    ])
+        value_str = simplify_value(details['metadata'].get(key, 'N/A'))
+        node_id = f"meta_{key}"
+        metadata_core_def.append(f"A --> {node_id}[{key}: {value_str}]")
 
     # Container Details
-    cpu_requests = details['container']['resources']['requests']['cpu']
-    memory_requests = details['container']['resources']['requests']['memory']
-    cpu_limits = details['container']['resources']['limits']['cpu']
-    memory_limits = details['container']['resources']['limits']['memory']
-
-
-    container_def = [
-        "graph LR",
-        f"A[Container: {details['container']['name']}]",
-        f"A --> B_cpu_requests[CPU Requests: {cpu_requests}]",
-        f"A --> B_memory_requests[Memory Requests: {memory_requests}]",
-        f"A --> B_cpu_limits[CPU Limits: {cpu_limits}]",
-        f"A --> B_memory_limits[Memory Limits: {memory_limits}]",
+    container_details_def = [
+        f"C[Container: {details['container']['name']}]",
     ]
 
-    for key, value in details['container'].items():
-        if key != "resources":  # We've already handled the 'resources' key separately above
-            value_str = simplify_value(value)
-            container_def.append(f"A --> B_{key}[{key}: {value_str}]")
+    for key in ['name', 'image', 'env', 'volume_mounts', 'image_pull_policy']:
+        value_str = simplify_value(details['container'].get(key, 'N/A'))
+        node_id = f"cont_{key}"
+        container_details_def.append(f"C --> {node_id}[{key}: {value_str}]")
 
-    container_def.extend([
-        "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
-        "class A greenFill"
-    ])
+    # Services Details
+    service_details_def = []
+    for service in services:
+        service_name = service.metadata.name
+        node_id = f"service_{service_name}"
+        service_details_def.append(f"{node_id}[Service: {service_name}]")
+        # Link service to Deployment
+        metadata_core_def.append(f"A --> {node_id}")
+
+        # Link service to appropriate pods based on label selectors
+        for pod in pods:
+            if service.spec.selector and all(
+                    item in pod.metadata.labels.items() for item in service.spec.selector.items()):
+                pod_node_id = f"pod_{pod.metadata.name}"
+                service_details_def.append(f"{node_id} --> {pod_node_id}")
+
+    # Add resources details (requests & limits) separately
+    resources = details['container'].get('resources', {})
+    for res_type, res_values in resources.items():
+        for key, value in res_values.items():
+            node_id = f"cont_{res_type}_{key}"
+            container_details_def.append(f"C --> {node_id}[{res_type} {key}: {value}]")
+
+    # Link Deployment to Container
+    metadata_core_def.append("A --> C")
 
     # Status Overview
     status_def = [
-        "graph TB",
-        "A[Status]"
+        "S[Status]"
     ]
-    for key, value in details['status'].items():
-        value_str = simplify_value(value)
-        status_def.append(f"A --> B_{key}[{key}: {value_str}]")
+    for key in details['status'].keys():
+        value_str = simplify_value(details['status'].get(key, 'N/A'))
+        node_id = f"status_{key}"
+        status_def.append(f"S --> {node_id}[{key}: {value_str}]")
 
-    status_def.extend([
+    # Link Deployment to Status
+    metadata_core_def.append("A --> S")
+
+    # Fetch services and link them to pods
+    services = fetch_services_for_workload(namespace_name, label_selector)
+    service_def = []
+    for service in services:
+        service_name = service.metadata.name
+        node_id = f"service_{service_name}"
+        service_def.append(f"{node_id}[Service: {service_name}]")
+        # Link service to Deployment
+        metadata_core_def.append(f"A --> {node_id}")
+
+        # Link service to appropriate pods based on label selectors
+        for pod in pods:
+            if service.spec.selector and all(
+                    item in pod.metadata.labels.items() for item in service.spec.selector.items()):
+                pod_node_id = f"pod_{pod.metadata.name}"
+                service_def.append(f"{node_id} --> {pod_node_id}")
+
+    class_defs = [
         "classDef greenFill fill:#e1f7d5,stroke:#333,stroke-width:2px,color:#333;",
-        "class A greenFill"
-    ])
+        "classDef yellowFill fill:#c7e59a,stroke:#333,stroke-width:2px,color:#333;",
+        "class A greenFill",
+        "class C,S yellowFill"
+    ]
 
     full_markdown = (
-            "# " + dep_name +
-            "\n\n## Metadata & Core Details\n\n```mermaid\n" + '\n'.join(metadata_core_def) + "\n```\n\n" +
-            "## Container Details\n\n```mermaid\n" + '\n'.join(container_def) + "\n```\n\n" +
-            "## Status Overview\n\n```mermaid\n" + '\n'.join(status_def) + "\n```"
+            "```mermaid\n" +
+            '\n'.join(metadata_core_def + container_details_def + status_def + service_details_def + class_defs) +
+            "\n```"
     )
 
     return full_markdown
-
-
-
-
-
-
 
 def generate_node(kind: str, name: str) -> str:
     """
